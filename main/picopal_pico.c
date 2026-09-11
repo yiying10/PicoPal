@@ -57,6 +57,10 @@ static const picopal_pico_geometry_t s_poses[PICOPAL_PICO_POSE_COUNT] = {
         .right = EYE(73, 18, 38, 28, 7),
         .style = PICOPAL_PICO_STYLE_ANGRY,
     },
+    [PICOPAL_PICO_POSE_DIZZY] = {
+        .left = EYE(10, 8, 40, 34, 10),
+        .right = EYE(80, 22, 34, 38, 10),
+    },
 };
 
 static void render_eye(const picopal_eye_geometry_t *eye)

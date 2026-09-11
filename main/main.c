@@ -1,11 +1,13 @@
 #include "esp_err.h"
 #include "esp_log.h"
 #include "picopal_animation.h"
+#include "picopal_commands.h"
 #include "picopal_display.h"
 #include "picopal_events.h"
 #include "picopal_framebuffer.h"
 #include "picopal_input.h"
 #include "picopal_pages.h"
+#include "picopal_pico_state.h"
 #include "picopal_timer.h"
 
 static const char *TAG = "picopal";
@@ -19,12 +21,13 @@ void app_main(void)
     ESP_ERROR_CHECK(picopal_events_init());
 
     picopal_timer_init();
-    picopal_animation_init();
+    picopal_pico_state_init();
     picopal_pages_init();
     picopal_pages_render();
     ESP_ERROR_CHECK(picopal_framebuffer_flush());
 
     ESP_ERROR_CHECK(picopal_input_init());
+    ESP_ERROR_CHECK(picopal_commands_init());
     ESP_LOGI(TAG, "PicoPal ready");
 
     uint64_t displayed_timer_seconds = UINT64_MAX;
@@ -36,13 +39,30 @@ void app_main(void)
                 picopal_pages_current() == PICOPAL_PAGE_TIMER) {
                 picopal_timer_toggle();
                 redraw = true;
+            } else if (event.type == PICOPAL_EVENT_PICO_SET_BASE) {
+                picopal_pico_state_set_base((picopal_pico_base_t)event.value);
+                redraw = picopal_pages_current() == PICOPAL_PAGE_PICO;
+            } else if (event.type == PICOPAL_EVENT_PICO_REACTION) {
+                bool accepted = picopal_pico_state_start_reaction(
+                    (picopal_pico_reaction_t)event.value
+                );
+                redraw = accepted &&
+                    picopal_pages_current() == PICOPAL_PAGE_PICO;
+            } else if (event.type == PICOPAL_EVENT_PICO_STATUS) {
+                ESP_LOGI(
+                    TAG,
+                    "Pico base=%d reaction=%d",
+                    picopal_pico_state_base(),
+                    picopal_pico_state_reaction()
+                );
             } else {
                 redraw = picopal_pages_handle_event(event);
             }
         }
 
+        bool pico_state_changed = picopal_pico_state_update();
         bool pico_frame_changed = picopal_animation_update();
-        if (pico_frame_changed &&
+        if ((pico_state_changed || pico_frame_changed) &&
             picopal_pages_current() == PICOPAL_PAGE_PICO) {
             redraw = true;
         }

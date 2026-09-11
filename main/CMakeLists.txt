@@ -10,6 +10,8 @@ idf_component_register(
         "picopal_pages.c"
         "picopal_timer.c"
         "picopal_animation.c"
+        "picopal_pico_state.c"
+        "picopal_commands.c"
     INCLUDE_DIRS "."
     PRIV_REQUIRES
         esp_adc

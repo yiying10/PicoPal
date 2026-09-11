@@ -31,6 +31,7 @@ static uint32_t s_transition_duration_ms;
 static int64_t s_next_idle_step_us;
 static size_t s_idle_index;
 static bool s_transition_active;
+static bool s_idle_enabled;
 
 static int16_t interpolate_value(int16_t from, int16_t to, float progress)
 {
@@ -61,7 +62,16 @@ void picopal_animation_init(void)
     s_transition_duration_ms = 0;
     s_idle_index = 0;
     s_transition_active = false;
+    s_idle_enabled = true;
     s_next_idle_step_us = esp_timer_get_time() + 1200000;
+}
+
+void picopal_animation_set_idle_enabled(bool enabled)
+{
+    s_idle_enabled = enabled;
+    if (enabled) {
+        s_next_idle_step_us = esp_timer_get_time() + 1200000;
+    }
 }
 
 void picopal_animation_set_pose(picopal_pico_pose_t pose, uint32_t duration_ms)
@@ -81,7 +91,7 @@ bool picopal_animation_update(void)
 {
     int64_t now = esp_timer_get_time();
 
-    if (!s_transition_active && now >= s_next_idle_step_us) {
+    if (s_idle_enabled && !s_transition_active && now >= s_next_idle_step_us) {
         const picopal_idle_step_t *step = &s_idle_sequence[s_idle_index];
         picopal_animation_set_pose(step->pose, step->transition_ms);
         s_next_idle_step_us = now +
