@@ -1,43 +1,21 @@
 #include "picopal_display.h"
 
 #include "driver/i2c_master.h"
+#include "picopal_i2c.h"
 
-#define PICOPAL_I2C_SDA_GPIO 8
-#define PICOPAL_I2C_SCL_GPIO 9
 #define PICOPAL_OLED_ADDRESS 0x3C
 #define PICOPAL_I2C_FREQUENCY_HZ 100000
 #define PICOPAL_DISPLAY_DATA_CONTROL_BYTE 0x40
 #define PICOPAL_DISPLAY_BUFFER_SIZE 1024
 
-static i2c_master_bus_handle_t s_bus_handle;
 static i2c_master_dev_handle_t s_oled_handle;
 static uint8_t s_data_transaction[PICOPAL_DISPLAY_BUFFER_SIZE + 1];
 
 esp_err_t picopal_display_init(void)
 {
-    i2c_master_bus_config_t bus_config = {
-        .clk_source = I2C_CLK_SRC_DEFAULT,
-        .i2c_port = I2C_NUM_0,
-        .scl_io_num = PICOPAL_I2C_SCL_GPIO,
-        .sda_io_num = PICOPAL_I2C_SDA_GPIO,
-        .glitch_ignore_cnt = 7,
-        .flags.enable_internal_pullup = true,
-    };
-
-    esp_err_t result = i2c_new_master_bus(&bus_config, &s_bus_handle);
-    if (result != ESP_OK) {
-        return result;
-    }
-
-    i2c_device_config_t oled_config = {
-        .dev_addr_length = I2C_ADDR_BIT_LEN_7,
-        .device_address = PICOPAL_OLED_ADDRESS,
-        .scl_speed_hz = PICOPAL_I2C_FREQUENCY_HZ,
-    };
-
-    return i2c_master_bus_add_device(
-        s_bus_handle,
-        &oled_config,
+    return picopal_i2c_add_device(
+        PICOPAL_OLED_ADDRESS,
+        PICOPAL_I2C_FREQUENCY_HZ,
         &s_oled_handle
     );
 }

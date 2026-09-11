@@ -12,9 +12,12 @@ idf_component_register(
         "picopal_animation.c"
         "picopal_pico_state.c"
         "picopal_commands.c"
+        "picopal_i2c.c"
+        "picopal_touch.c"
     INCLUDE_DIRS "."
     PRIV_REQUIRES
         esp_adc
+        driver
         esp_driver_gpio
         esp_driver_i2c
         esp_timer

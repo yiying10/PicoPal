@@ -14,6 +14,8 @@ typedef enum {
     PICOPAL_EVENT_PICO_SET_BASE,
     PICOPAL_EVENT_PICO_REACTION,
     PICOPAL_EVENT_PICO_STATUS,
+    PICOPAL_EVENT_TOUCH_SHORT,
+    PICOPAL_EVENT_TOUCH_LONG,
 } picopal_event_type_t;
 
 typedef struct {

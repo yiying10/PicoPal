@@ -7,6 +7,7 @@
 #include "picopal_timer.h"
 
 static picopal_page_t s_current_page;
+static bool s_pico_overlay_active;
 
 static void render_timer_placeholder(void)
 {
@@ -29,10 +30,15 @@ static void render_draw_placeholder(void)
 void picopal_pages_init(void)
 {
     s_current_page = PICOPAL_PAGE_PICO;
+    s_pico_overlay_active = false;
 }
 
 bool picopal_pages_handle_event(picopal_event_t event)
 {
+    if (s_pico_overlay_active) {
+        return false;
+    }
+
     picopal_page_t previous_page = s_current_page;
 
     if (event.type == PICOPAL_EVENT_PAGE_PREVIOUS &&
@@ -48,6 +54,11 @@ bool picopal_pages_handle_event(picopal_event_t event)
 
 void picopal_pages_render(void)
 {
+    if (s_pico_overlay_active) {
+        picopal_animation_render();
+        return;
+    }
+
     switch (s_current_page) {
         case PICOPAL_PAGE_TIMER:
             render_timer_placeholder();
@@ -65,4 +76,19 @@ void picopal_pages_render(void)
 picopal_page_t picopal_pages_current(void)
 {
     return s_current_page;
+}
+
+void picopal_pages_show_pico_overlay(void)
+{
+    s_pico_overlay_active = true;
+}
+
+void picopal_pages_dismiss_overlay(void)
+{
+    s_pico_overlay_active = false;
+}
+
+bool picopal_pages_overlay_active(void)
+{
+    return s_pico_overlay_active;
 }
