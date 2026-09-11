@@ -1,0 +1,19 @@
+idf_component_register(
+    SRCS
+        "main.c"
+        "picopal_display.c"
+        "picopal_framebuffer.c"
+        "picopal_graphics.c"
+        "picopal_pico.c"
+        "picopal_events.c"
+        "picopal_input.c"
+        "picopal_pages.c"
+        "picopal_timer.c"
+        "picopal_animation.c"
+    INCLUDE_DIRS "."
+    PRIV_REQUIRES
+        esp_adc
+        esp_driver_gpio
+        esp_driver_i2c
+        esp_timer
+)
