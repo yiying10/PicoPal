@@ -33,6 +33,17 @@ static void accepts_space_and_colon_formats(void)
     assert(event.value == PICOPAL_PICO_BASE_ERROR);
 }
 
+static void accepts_versioned_protocol(void)
+{
+    picopal_event_t event;
+    assert(picopal_command_parse("PICO/1 base coding", &event) == PICOPAL_COMMAND_EVENT);
+    assert(event.type == PICOPAL_EVENT_PICO_SET_BASE);
+    assert(event.value == PICOPAL_PICO_BASE_CODING);
+    assert(picopal_command_parse("PICO/1 react codex_done", &event) == PICOPAL_COMMAND_EVENT);
+    assert(event.type == PICOPAL_EVENT_PICO_REACTION);
+    assert(picopal_command_parse("PICO/2 base idle", &event) == PICOPAL_COMMAND_INVALID);
+}
+
 static void handles_non_event_commands(void)
 {
     picopal_event_t event;
@@ -55,6 +66,7 @@ int main(void)
 {
     accepts_direct_commands();
     accepts_space_and_colon_formats();
+    accepts_versioned_protocol();
     handles_non_event_commands();
     rejects_invalid_commands();
     puts("command_parser_test: all tests passed");

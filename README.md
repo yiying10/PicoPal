@@ -20,6 +20,20 @@ PicoPal/
 └── README.md
 ```
 
+**## Host bridge**
+
+`companion/picopal_bridge.py` 透過 USB serial 傳送 versioned `PICO/1` 狀態事件：
+
+```bash
+python3 -m venv companion/.venv
+companion/.venv/bin/pip install -r companion/requirements.txt
+companion/.venv/bin/python companion/picopal_bridge.py --port /dev/cu.usbmodemXXXX coding
+companion/.venv/bin/python companion/picopal_bridge.py --port /dev/cu.usbmodemXXXX done
+```
+
+另支援 `error`、`recovered` 與 `disconnected`。實際 serial port 可用 `ls /dev/cu.usbmodem*` 查詢。
+
+
 ## 手機 API
 
 - `GET /api/images`：取得圖片列表與目前選取 ID。

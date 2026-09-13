@@ -71,6 +71,14 @@ picopal_command_result_t picopal_command_parse(
     if (group == NULL) {
         return PICOPAL_COMMAND_EMPTY;
     }
+    if (strcmp(group, "PICO/1") == 0) {
+        group = name;
+        name = extra;
+        extra = strtok_r(NULL, " \t:", &save);
+        if (group == NULL || name == NULL) {
+            return PICOPAL_COMMAND_INVALID;
+        }
+    }
     if (extra != NULL) {
         return PICOPAL_COMMAND_INVALID;
     }

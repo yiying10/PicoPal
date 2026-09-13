@@ -18,6 +18,7 @@ static void print_help(void)
     ESP_LOGI(TAG, "Base: idle|coding|sleep|disconnected|error");
     ESP_LOGI(TAG, "React: happy|surprised|dizzy|codex_done|wake");
     ESP_LOGI(TAG, "Also accepted: base:coding and react:happy");
+    ESP_LOGI(TAG, "Host protocol: PICO/1 base coding | PICO/1 react codex_done");
     ESP_LOGI(TAG, "status");
 }
 
