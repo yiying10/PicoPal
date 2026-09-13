@@ -10,6 +10,7 @@ typedef enum {
 
 void picopal_timer_init(void);
 void picopal_timer_toggle(void);
+void picopal_timer_reset(void);
 picopal_timer_state_t picopal_timer_state(void);
 uint64_t picopal_timer_elapsed_seconds(void);
 void picopal_timer_render(void);

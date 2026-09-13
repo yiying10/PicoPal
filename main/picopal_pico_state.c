@@ -25,7 +25,7 @@ static const picopal_reaction_config_t s_reactions[] = {
     [PICOPAL_PICO_REACTION_SURPRISED] = {
         .pose = PICOPAL_PICO_POSE_SURPRISED,
         .transition_ms = 90,
-        .duration_ms = 650,
+        .duration_ms = 1000,
         .priority = 1,
     },
     [PICOPAL_PICO_REACTION_DIZZY] = {

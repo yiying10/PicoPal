@@ -13,6 +13,7 @@
 #define PICOPAL_JOYSTICK_X_CHANNEL ADC_CHANNEL_4
 #define PICOPAL_JOYSTICK_Y_CHANNEL ADC_CHANNEL_5
 #define PICOPAL_JOYSTICK_SWITCH_GPIO GPIO_NUM_7
+#define PICOPAL_TIMER_BUTTON_GPIO GPIO_NUM_15
 
 #define PICOPAL_JOYSTICK_LOW_THRESHOLD 1200
 #define PICOPAL_JOYSTICK_HIGH_THRESHOLD 2900
@@ -23,6 +24,14 @@
 
 static const char *TAG = "input";
 static adc_oneshot_unit_handle_t s_adc_handle;
+
+typedef struct {
+    gpio_num_t gpio;
+    picopal_event_type_t event;
+    bool candidate_pressed;
+    bool stable_pressed;
+    uint8_t matching_samples;
+} button_input_t;
 
 static bool value_is_centered(int value)
 {
@@ -37,33 +46,43 @@ static void publish_direction(picopal_event_type_t type)
     }
 }
 
+static void update_button(button_input_t *button)
+{
+    bool pressed = gpio_get_level(button->gpio) == 0;
+    if (pressed == button->candidate_pressed) {
+        if (button->matching_samples < PICOPAL_BUTTON_DEBOUNCE_SAMPLES) {
+            ++button->matching_samples;
+        }
+    } else {
+        button->candidate_pressed = pressed;
+        button->matching_samples = 1;
+    }
+
+    if (button->matching_samples >= PICOPAL_BUTTON_DEBOUNCE_SAMPLES &&
+        button->stable_pressed != button->candidate_pressed) {
+        button->stable_pressed = button->candidate_pressed;
+        if (button->stable_pressed) {
+            publish_direction(button->event);
+        }
+    }
+}
+
 static void input_task(void *context)
 {
     (void)context;
     bool armed = true;
-    bool button_candidate_pressed = false;
-    bool button_stable_pressed = false;
-    uint8_t button_same_sample_count = 0;
+    button_input_t joystick_switch = {
+        .gpio = PICOPAL_JOYSTICK_SWITCH_GPIO,
+        .event = PICOPAL_EVENT_TIMER_RESET,
+    };
+    button_input_t timer_button = {
+        .gpio = PICOPAL_TIMER_BUTTON_GPIO,
+        .event = PICOPAL_EVENT_TIMER_TOGGLE,
+    };
 
     while (true) {
-        bool button_pressed =
-            gpio_get_level(PICOPAL_JOYSTICK_SWITCH_GPIO) == 0;
-        if (button_pressed == button_candidate_pressed) {
-            if (button_same_sample_count < PICOPAL_BUTTON_DEBOUNCE_SAMPLES) {
-                ++button_same_sample_count;
-            }
-        } else {
-            button_candidate_pressed = button_pressed;
-            button_same_sample_count = 1;
-        }
-
-        if (button_same_sample_count >= PICOPAL_BUTTON_DEBOUNCE_SAMPLES &&
-            button_stable_pressed != button_candidate_pressed) {
-            button_stable_pressed = button_candidate_pressed;
-            if (button_stable_pressed) {
-                publish_direction(PICOPAL_EVENT_TIMER_TOGGLE);
-            }
-        }
+        update_button(&joystick_switch);
+        update_button(&timer_button);
 
         int x_raw = 0;
         int y_raw = 0;
@@ -141,17 +160,18 @@ esp_err_t picopal_input_init(void)
         "Joystick Y configuration failed"
     );
 
-    gpio_config_t switch_config = {
-        .pin_bit_mask = 1ULL << PICOPAL_JOYSTICK_SWITCH_GPIO,
+    gpio_config_t button_config = {
+        .pin_bit_mask = (1ULL << PICOPAL_JOYSTICK_SWITCH_GPIO) |
+            (1ULL << PICOPAL_TIMER_BUTTON_GPIO),
         .mode = GPIO_MODE_INPUT,
         .pull_up_en = GPIO_PULLUP_ENABLE,
         .pull_down_en = GPIO_PULLDOWN_DISABLE,
         .intr_type = GPIO_INTR_DISABLE,
     };
     ESP_RETURN_ON_ERROR(
-        gpio_config(&switch_config),
+        gpio_config(&button_config),
         TAG,
-        "Joystick switch configuration failed"
+        "Button configuration failed"
     );
 
     BaseType_t created = xTaskCreate(

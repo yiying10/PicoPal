@@ -14,6 +14,8 @@ idf_component_register(
         "picopal_commands.c"
         "picopal_i2c.c"
         "picopal_touch.c"
+        "picopal_motion.c"
+        "picopal_controller.c"
     INCLUDE_DIRS "."
     PRIV_REQUIRES
         esp_adc

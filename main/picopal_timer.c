@@ -34,6 +34,13 @@ void picopal_timer_toggle(void)
     }
 }
 
+void picopal_timer_reset(void)
+{
+    s_state = PICOPAL_TIMER_PAUSED;
+    s_accumulated_microseconds = 0;
+    s_started_at_microseconds = 0;
+}
+
 picopal_timer_state_t picopal_timer_state(void)
 {
     return s_state;
