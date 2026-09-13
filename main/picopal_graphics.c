@@ -17,14 +17,28 @@ static const uint8_t s_digit_rows[10][5] = {
     { 0x7, 0x5, 0x7, 0x1, 0x7 },
 };
 
-static void draw_scaled_pixel(
-    int16_t x,
-    int16_t y,
-    uint8_t scale,
-    bool on
-)
+static const uint8_t s_done_rows[5][5] = {
+    { 0x6, 0x5, 0x5, 0x5, 0x6 }, /* D */
+    { 0x7, 0x4, 0x6, 0x4, 0x7 }, /* E */
+    { 0x5, 0x7, 0x7, 0x7, 0x5 }, /* N */
+    { 0x7, 0x5, 0x5, 0x5, 0x7 }, /* O */
+    { 0x2, 0x2, 0x2, 0x0, 0x2 }, /* ! */
+};
+
+
+static const uint8_t *text_rows(char character)
 {
-    picopal_graphics_fill_rect(x, y, scale, scale, on);
+    if (character >= '0' && character <= '9') {
+        return s_digit_rows[character - '0'];
+    }
+    switch (character) {
+        case 'D': return s_done_rows[0];
+        case 'E': return s_done_rows[1];
+        case 'N': return s_done_rows[2];
+        case 'O': return s_done_rows[3];
+        case '!': return s_done_rows[4];
+        default: return NULL;
+    }
 }
 
 void picopal_graphics_draw_line(
@@ -147,6 +161,51 @@ void picopal_graphics_fill_rounded_rect(
     }
 }
 
+void picopal_graphics_draw_text_3x5_scaled(
+    int16_t x,
+    int16_t y,
+    const char *text,
+    uint8_t scale_x,
+    uint8_t scale_y,
+    bool on
+)
+{
+    if (text == NULL || scale_x == 0 || scale_y == 0) {
+        return;
+    }
+
+    int16_t cursor_x = x;
+    for (const char *character = text; *character != '\0'; ++character) {
+        const uint8_t *rows = text_rows(*character);
+        if (rows != NULL) {
+            for (uint8_t row = 0; row < 5; ++row) {
+                for (uint8_t column = 0; column < 3; ++column) {
+                    if ((rows[row] & (1U << (2U - column))) != 0) {
+                        picopal_graphics_fill_rect(
+                            cursor_x + column * scale_x,
+                            y + row * scale_y,
+                            scale_x,
+                            scale_y,
+                            on
+                        );
+                    }
+                }
+            }
+            cursor_x += 4 * scale_x;
+        } else if (*character == ':') {
+            picopal_graphics_fill_rect(
+                cursor_x, y + scale_y, scale_x, scale_y, on
+            );
+            picopal_graphics_fill_rect(
+                cursor_x, y + 3 * scale_y, scale_x, scale_y, on
+            );
+            cursor_x += 2 * scale_x;
+        } else {
+            cursor_x += 2 * scale_x;
+        }
+    }
+}
+
 void picopal_graphics_draw_text_3x5(
     int16_t x,
     int16_t y,
@@ -155,33 +214,7 @@ void picopal_graphics_draw_text_3x5(
     bool on
 )
 {
-    if (text == NULL || scale == 0) {
-        return;
-    }
-
-    int16_t cursor_x = x;
-    for (const char *character = text; *character != '\0'; ++character) {
-        if (*character >= '0' && *character <= '9') {
-            const uint8_t *rows = s_digit_rows[*character - '0'];
-            for (uint8_t row = 0; row < 5; ++row) {
-                for (uint8_t column = 0; column < 3; ++column) {
-                    if ((rows[row] & (1U << (2U - column))) != 0) {
-                        draw_scaled_pixel(
-                            cursor_x + column * scale,
-                            y + row * scale,
-                            scale,
-                            on
-                        );
-                    }
-                }
-            }
-            cursor_x += 4 * scale;
-        } else if (*character == ':') {
-            draw_scaled_pixel(cursor_x, y + scale, scale, on);
-            draw_scaled_pixel(cursor_x, y + 3 * scale, scale, on);
-            cursor_x += 2 * scale;
-        } else {
-            cursor_x += 2 * scale;
-        }
-    }
+    picopal_graphics_draw_text_3x5_scaled(
+        x, y, text, scale, scale, on
+    );
 }
