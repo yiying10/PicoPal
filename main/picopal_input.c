@@ -19,6 +19,8 @@
 #define PICOPAL_JOYSTICK_HIGH_THRESHOLD 2900
 #define PICOPAL_JOYSTICK_CENTER_LOW 1600
 #define PICOPAL_JOYSTICK_CENTER_HIGH 2500
+#define PICOPAL_JOYSTICK_CENTER 2050
+#define PICOPAL_JOYSTICK_AXIS_DOMINANCE 300
 #define PICOPAL_INPUT_POLL_MS 20
 #define PICOPAL_BUTTON_DEBOUNCE_SAMPLES 3
 
@@ -37,6 +39,12 @@ static bool value_is_centered(int value)
 {
     return value >= PICOPAL_JOYSTICK_CENTER_LOW &&
            value <= PICOPAL_JOYSTICK_CENTER_HIGH;
+}
+
+static int distance_from_center(int value)
+{
+    int distance = value - PICOPAL_JOYSTICK_CENTER;
+    return distance < 0 ? -distance : distance;
 }
 
 static void publish_direction(picopal_event_type_t type)
@@ -106,16 +114,26 @@ static void input_task(void *context)
         if (!armed && value_is_centered(x_raw) && value_is_centered(y_raw)) {
             armed = true;
         } else if (armed) {
-            if (x_raw < PICOPAL_JOYSTICK_LOW_THRESHOLD) {
+            int x_distance = distance_from_center(x_raw);
+            int y_distance = distance_from_center(y_raw);
+            bool x_dominant =
+                x_distance >= y_distance + PICOPAL_JOYSTICK_AXIS_DOMINANCE;
+            bool y_dominant =
+                y_distance >= x_distance + PICOPAL_JOYSTICK_AXIS_DOMINANCE;
+
+            if (x_dominant && x_raw < PICOPAL_JOYSTICK_LOW_THRESHOLD) {
                 publish_direction(PICOPAL_EVENT_PAGE_PREVIOUS);
                 armed = false;
-            } else if (x_raw > PICOPAL_JOYSTICK_HIGH_THRESHOLD) {
+            } else if (x_dominant &&
+                       x_raw > PICOPAL_JOYSTICK_HIGH_THRESHOLD) {
                 publish_direction(PICOPAL_EVENT_PAGE_NEXT);
                 armed = false;
-            } else if (y_raw < PICOPAL_JOYSTICK_LOW_THRESHOLD) {
+            } else if (y_dominant &&
+                       y_raw < PICOPAL_JOYSTICK_LOW_THRESHOLD) {
                 publish_direction(PICOPAL_EVENT_DRAW_NEXT);
                 armed = false;
-            } else if (y_raw > PICOPAL_JOYSTICK_HIGH_THRESHOLD) {
+            } else if (y_dominant &&
+                       y_raw > PICOPAL_JOYSTICK_HIGH_THRESHOLD) {
                 publish_direction(PICOPAL_EVENT_DRAW_PREVIOUS);
                 armed = false;
             }

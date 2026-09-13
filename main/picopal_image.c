@@ -29,6 +29,9 @@ typedef struct {
 static const char *TAG = "image";
 static image_index_t s_index;
 static uint8_t s_pixels[PICOPAL_IMAGE_SIZE];
+/* Large operation buffers live outside task stacks and are mutex-protected. */
+static image_index_t s_work_index;
+static uint8_t s_work_pixels[PICOPAL_IMAGE_SIZE];
 static SemaphoreHandle_t s_mutex;
 
 static void image_path(uint32_t id, char *path, size_t path_size)
@@ -129,9 +132,10 @@ static void migrate_legacy_image(void)
     if (s_index.count != 0 || access(LEGACY_IMAGE_PATH, F_OK) != 0) {
         return;
     }
-    uint8_t pixels[PICOPAL_IMAGE_SIZE];
     FILE *file = fopen(LEGACY_IMAGE_PATH, "rb");
-    if (file == NULL || fread(pixels, 1, sizeof(pixels), file) != sizeof(pixels) ||
+    if (file == NULL ||
+        fread(s_work_pixels, 1, sizeof(s_work_pixels), file) !=
+            sizeof(s_work_pixels) ||
         fgetc(file) != EOF) {
         if (file != NULL) {
             fclose(file);
@@ -147,7 +151,7 @@ static void migrate_legacy_image(void)
         s_index.count = 1;
         s_index.selected_id = 1;
         s_index.next_id = 2;
-        memcpy(s_pixels, pixels, sizeof(s_pixels));
+        memcpy(s_pixels, s_work_pixels, sizeof(s_pixels));
         if (save_index(&s_index) == ESP_OK) {
             ESP_LOGI(TAG, "Previous drawing migrated into gallery");
         }
@@ -204,17 +208,17 @@ esp_err_t picopal_image_add(
         return ESP_FAIL;
     }
 
-    image_index_t next = s_index;
-    next.ids[next.count++] = id;
-    next.selected_id = id;
-    next.next_id = id + 1;
-    if (save_index(&next) != ESP_OK) {
+    s_work_index = s_index;
+    s_work_index.ids[s_work_index.count++] = id;
+    s_work_index.selected_id = id;
+    s_work_index.next_id = id + 1;
+    if (save_index(&s_work_index) != ESP_OK) {
         unlink(final_path);
         xSemaphoreGive(s_mutex);
         return ESP_FAIL;
     }
 
-    s_index = next;
+    s_index = s_work_index;
     memcpy(s_pixels, pixels, sizeof(s_pixels));
     if (image_id != NULL) {
         *image_id = id;
@@ -226,19 +230,19 @@ esp_err_t picopal_image_add(
 esp_err_t picopal_image_select(uint32_t image_id)
 {
     xSemaphoreTake(s_mutex, portMAX_DELAY);
-    image_index_t next = s_index;
-    next.selected_id = image_id;
-    if (selected_index(&next) < 0) {
+    s_work_index = s_index;
+    s_work_index.selected_id = image_id;
+    if (selected_index(&s_work_index) < 0) {
         xSemaphoreGive(s_mutex);
         return ESP_ERR_NOT_FOUND;
     }
-    uint8_t pixels[PICOPAL_IMAGE_SIZE];
-    if (!read_pixels(image_id, pixels) || save_index(&next) != ESP_OK) {
+    if (!read_pixels(image_id, s_work_pixels) ||
+        save_index(&s_work_index) != ESP_OK) {
         xSemaphoreGive(s_mutex);
         return ESP_FAIL;
     }
-    s_index = next;
-    memcpy(s_pixels, pixels, sizeof(s_pixels));
+    s_index = s_work_index;
+    memcpy(s_pixels, s_work_pixels, sizeof(s_pixels));
     xSemaphoreGive(s_mutex);
     return ESP_OK;
 }
@@ -282,27 +286,29 @@ esp_err_t picopal_image_delete(uint32_t image_id)
         return ESP_ERR_NOT_FOUND;
     }
 
-    image_index_t next = s_index;
-    for (uint16_t i = (uint16_t)removed; i + 1 < next.count; ++i) {
-        next.ids[i] = next.ids[i + 1];
+    s_work_index = s_index;
+    for (uint16_t i = (uint16_t)removed; i + 1 < s_work_index.count; ++i) {
+        s_work_index.ids[i] = s_work_index.ids[i + 1];
     }
-    --next.count;
-    uint8_t next_pixels[PICOPAL_IMAGE_SIZE] = {0};
-    if (image_id == next.selected_id) {
-        if (next.count == 0) {
-            next.selected_id = 0;
+    --s_work_index.count;
+    memset(s_work_pixels, 0, sizeof(s_work_pixels));
+    if (image_id == s_work_index.selected_id) {
+        if (s_work_index.count == 0) {
+            s_work_index.selected_id = 0;
         } else {
-            uint16_t replacement = removed < next.count ? (uint16_t)removed : next.count - 1;
-            next.selected_id = next.ids[replacement];
-            if (!read_pixels(next.selected_id, next_pixels)) {
+            uint16_t replacement = removed < s_work_index.count
+                ? (uint16_t)removed
+                : s_work_index.count - 1;
+            s_work_index.selected_id = s_work_index.ids[replacement];
+            if (!read_pixels(s_work_index.selected_id, s_work_pixels)) {
                 xSemaphoreGive(s_mutex);
                 return ESP_FAIL;
             }
         }
     } else {
-        memcpy(next_pixels, s_pixels, sizeof(next_pixels));
+        memcpy(s_work_pixels, s_pixels, sizeof(s_work_pixels));
     }
-    if (save_index(&next) != ESP_OK) {
+    if (save_index(&s_work_index) != ESP_OK) {
         xSemaphoreGive(s_mutex);
         return ESP_FAIL;
     }
@@ -310,8 +316,8 @@ esp_err_t picopal_image_delete(uint32_t image_id)
     char path[64];
     image_path(image_id, path, sizeof(path));
     unlink(path);
-    s_index = next;
-    memcpy(s_pixels, next_pixels, sizeof(s_pixels));
+    s_index = s_work_index;
+    memcpy(s_pixels, s_work_pixels, sizeof(s_pixels));
     xSemaphoreGive(s_mutex);
     return ESP_OK;
 }
