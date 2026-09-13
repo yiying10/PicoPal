@@ -3,12 +3,7 @@
 #include <stdbool.h>
 
 #include "picopal_events.h"
-
-typedef enum {
-    PICOPAL_PAGE_TIMER,
-    PICOPAL_PAGE_PICO,
-    PICOPAL_PAGE_DRAW,
-} picopal_page_t;
+#include "picopal_page_model.h"
 
 void picopal_pages_init(void);
 bool picopal_pages_handle_event(picopal_event_t event);

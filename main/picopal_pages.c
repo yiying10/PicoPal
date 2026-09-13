@@ -6,7 +6,7 @@
 #include "picopal_pico.h"
 #include "picopal_timer.h"
 
-static picopal_page_t s_current_page;
+static picopal_page_model_t s_page_model;
 static bool s_pico_overlay_active;
 
 static void render_timer_placeholder(void)
@@ -29,7 +29,7 @@ static void render_draw_placeholder(void)
 
 void picopal_pages_init(void)
 {
-    s_current_page = PICOPAL_PAGE_PICO;
+    picopal_page_model_init(&s_page_model);
     s_pico_overlay_active = false;
 }
 
@@ -39,17 +39,13 @@ bool picopal_pages_handle_event(picopal_event_t event)
         return false;
     }
 
-    picopal_page_t previous_page = s_current_page;
-
-    if (event.type == PICOPAL_EVENT_PAGE_PREVIOUS &&
-        s_current_page > PICOPAL_PAGE_TIMER) {
-        --s_current_page;
-    } else if (event.type == PICOPAL_EVENT_PAGE_NEXT &&
-               s_current_page < PICOPAL_PAGE_DRAW) {
-        ++s_current_page;
+    if (event.type == PICOPAL_EVENT_PAGE_PREVIOUS) {
+        return picopal_page_model_previous(&s_page_model);
     }
-
-    return previous_page != s_current_page;
+    if (event.type == PICOPAL_EVENT_PAGE_NEXT) {
+        return picopal_page_model_next(&s_page_model);
+    }
+    return false;
 }
 
 void picopal_pages_render(void)
@@ -59,7 +55,7 @@ void picopal_pages_render(void)
         return;
     }
 
-    switch (s_current_page) {
+    switch (s_page_model.current) {
         case PICOPAL_PAGE_TIMER:
             render_timer_placeholder();
             break;
@@ -75,7 +71,7 @@ void picopal_pages_render(void)
 
 picopal_page_t picopal_pages_current(void)
 {
-    return s_current_page;
+    return s_page_model.current;
 }
 
 void picopal_pages_show_pico_overlay(void)
