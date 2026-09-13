@@ -25,6 +25,13 @@ static const uint8_t s_done_rows[5][5] = {
     { 0x2, 0x2, 0x2, 0x0, 0x2 }, /* ! */
 };
 
+static const uint8_t s_slash_rows[5] = {
+    0x1,
+    0x1,
+    0x2,
+    0x4,
+    0x4,
+};
 
 static const uint8_t *text_rows(char character)
 {
@@ -37,6 +44,7 @@ static const uint8_t *text_rows(char character)
         case 'N': return s_done_rows[2];
         case 'O': return s_done_rows[3];
         case '!': return s_done_rows[4];
+        case '/': return s_slash_rows;
         default: return NULL;
     }
 }
