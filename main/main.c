@@ -13,6 +13,8 @@
 #include "picopal_pico_state.h"
 #include "picopal_timer.h"
 #include "picopal_touch.h"
+#include "picopal_storage.h"
+#include "picopal_wifi.h"
 
 static const char *TAG = "picopal";
 
@@ -20,6 +22,8 @@ void app_main(void)
 {
     ESP_LOGI(TAG, "PicoPal booted");
 
+    ESP_ERROR_CHECK(picopal_storage_init());
+    ESP_ERROR_CHECK(picopal_wifi_init());
     ESP_ERROR_CHECK(picopal_i2c_init());
     ESP_ERROR_CHECK(picopal_display_init());
     ESP_ERROR_CHECK(picopal_display_configure());

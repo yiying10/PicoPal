@@ -82,6 +82,16 @@ bool picopal_controller_handle_event(picopal_event_t event)
             }
             return false;
 
+        case PICOPAL_EVENT_TIMER_REMOTE_TOGGLE:
+            picopal_timer_toggle();
+            return picopal_pages_current() == PICOPAL_PAGE_TIMER &&
+                !picopal_pages_overlay_active();
+
+        case PICOPAL_EVENT_TIMER_REMOTE_RESET:
+            picopal_timer_reset();
+            return picopal_pages_current() == PICOPAL_PAGE_TIMER &&
+                !picopal_pages_overlay_active();
+
         case PICOPAL_EVENT_PICO_SET_BASE:
             picopal_pico_state_set_base((picopal_pico_base_t)event.value);
             return picopal_pages_current() == PICOPAL_PAGE_PICO;

@@ -20,6 +20,8 @@ idf_component_register(
         "picopal_touch.c"
         "picopal_motion.c"
         "picopal_controller.c"
+        "picopal_storage.c"
+        "picopal_wifi.c"
     INCLUDE_DIRS "."
     PRIV_REQUIRES
         esp_adc
@@ -27,4 +29,10 @@ idf_component_register(
         esp_driver_gpio
         esp_driver_i2c
         esp_timer
+        littlefs
+        nvs_flash
+        esp_event
+        esp_http_server
+        esp_netif
+        esp_wifi
 )
