@@ -35,3 +35,12 @@ void picopal_graphics_draw_text_3x5(
     uint8_t scale,
     bool on
 );
+
+void picopal_graphics_draw_text_3x5_scaled(
+    int16_t x,
+    int16_t y,
+    const char *text,
+    uint8_t scale_x,
+    uint8_t scale_y,
+    bool on
+);

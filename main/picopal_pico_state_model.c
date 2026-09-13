@@ -27,7 +27,7 @@ static uint64_t reaction_duration_us(picopal_pico_reaction_t reaction)
         case PICOPAL_PICO_REACTION_DIZZY:
             return 1000000ULL;
         case PICOPAL_PICO_REACTION_CODEX_DONE:
-            return 1600000ULL;
+            return 3000000ULL;
         case PICOPAL_PICO_REACTION_WAKE:
             return 400000ULL;
         case PICOPAL_PICO_REACTION_NONE:
