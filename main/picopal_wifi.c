@@ -1,6 +1,7 @@
 #include "picopal_wifi.h"
 
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 #include "esp_check.h"
@@ -16,6 +17,8 @@
 #include "lwip/ip4_addr.h"
 #include "nvs.h"
 #include "picopal_events.h"
+#include "picopal_crc32.h"
+#include "picopal_image.h"
 #include "picopal_timer.h"
 
 #define WIFI_NAMESPACE "wifi"
@@ -37,6 +40,11 @@ static bool s_station_connecting;
 static unsigned s_retry_count;
 static char s_ip_address[16] = "0.0.0.0";
 
+extern const uint8_t web_index_html_start[]
+    asm("_binary_index_html_start");
+extern const uint8_t web_index_html_end[]
+    asm("_binary_index_html_end");
+
 static const char s_setup_page[] =
     "<!doctype html><html><head>"
     "<meta charset='utf-8'>"
@@ -52,46 +60,6 @@ static const char s_setup_page[] =
     "<label>Wi-Fi name<input name='ssid' maxlength='32' required></label>"
     "<label>Password<input name='password' type='password' maxlength='63'></label>"
     "<button type='submit'>Connect</button></form></main></body></html>";
-
-static const char s_control_page[] =
-    "<!doctype html><html><head><meta charset='utf-8'>"
-    "<meta name='viewport' content='width=device-width,initial-scale=1'>"
-    "<title>PicoPal</title><style>"
-    ":root{font-family:system-ui;color:#202020;background:#f4f1e8}"
-    "body{margin:0}main{max-width:520px;margin:auto;padding:24px}"
-    "nav{display:flex;gap:8px;margin-bottom:20px}button{font:inherit;border:0;"
-    "border-radius:12px;padding:12px 16px;background:#202020;color:white}"
-    "nav button{flex:1;background:#ddd;color:#222}nav .on{background:#202020;color:white}"
-    ".card{background:white;border-radius:20px;padding:24px}"
-    ".time{font:700 56px ui-monospace,monospace;text-align:center;margin:24px 0}"
-    ".controls{display:flex;gap:10px;justify-content:center}"
-    ".secondary{background:#ddd;color:#222}.hidden{display:none}"
-    "canvas{width:100%;image-rendering:pixelated;background:#000;border:1px solid #222}"
-    "small{color:#666}</style></head><body><main>"
-    "<h1>PicoPal</h1><nav><button id='focusTab' class='on'>Focus</button>"
-    "<button id='drawTab'>Drawing</button></nav>"
-    "<section id='focus' class='card'><small id='state'>Loading…</small>"
-    "<div id='time' class='time'>000:00</div><div class='controls'>"
-    "<button id='toggle'>Start</button><button id='reset' class='secondary'>Reset</button>"
-    "</div></section><section id='drawing' class='card hidden'>"
-    "<canvas id='canvas' width='128' height='64'></canvas>"
-    "<p>Drawing tools and upload are added in Lab 3.</p></section>"
-    "<p><button id='forget' class='secondary'>Forget Wi-Fi</button></p>"
-    "<script>const q=s=>document.querySelector(s);let running=false;"
-    "async function refresh(){try{const r=await fetch('/api/timer');const d=await r.json();"
-    "running=d.running;q('#time').textContent=d.display;q('#state').textContent="
-    "running?'Timer running':'Timer paused';q('#toggle').textContent=running?'Pause':'Start'}"
-    "catch(e){q('#state').textContent='Device unavailable'}}"
-    "async function post(path){await fetch(path,{method:'POST'});await refresh()}"
-    "q('#toggle').onclick=()=>post('/api/timer/toggle');"
-    "q('#reset').onclick=()=>post('/api/timer/reset');"
-    "q('#forget').onclick=async()=>{if(confirm('Forget Wi-Fi and return to setup mode?'))"
-    "await post('/api/wifi/forget')};"
-    "function tab(draw){q('#focus').classList.toggle('hidden',draw);"
-    "q('#drawing').classList.toggle('hidden',!draw);q('#focusTab').classList.toggle('on',!draw);"
-    "q('#drawTab').classList.toggle('on',draw)}"
-    "q('#focusTab').onclick=()=>tab(false);q('#drawTab').onclick=()=>tab(true);"
-    "refresh();setInterval(refresh,500)</script></main></body></html>";
 
 static void wifi_event_handler(
     void *context,
@@ -251,11 +219,189 @@ static bool find_form_value(
 static esp_err_t root_handler(httpd_req_t *request)
 {
     httpd_resp_set_type(request, "text/html; charset=utf-8");
+    httpd_resp_set_hdr(request, "Cache-Control", "no-store");
     if (s_mode == PICOPAL_WIFI_MODE_SETUP) {
         return httpd_resp_send(request, s_setup_page, HTTPD_RESP_USE_STRLEN);
     }
 
-    return httpd_resp_send(request, s_control_page, HTTPD_RESP_USE_STRLEN);
+    return httpd_resp_send(
+        request,
+        (const char *)web_index_html_start,
+        web_index_html_end - web_index_html_start
+    );
+}
+
+static esp_err_t image_upload_handler(httpd_req_t *request)
+{
+    if (request->content_len != PICOPAL_IMAGE_SIZE) {
+        return httpd_resp_send_err(
+            request,
+            HTTPD_400_BAD_REQUEST,
+            "Image must be exactly 1024 bytes"
+        );
+    }
+
+    char crc_text[9];
+    if (httpd_req_get_hdr_value_str(
+            request,
+            "X-Image-CRC32",
+            crc_text,
+            sizeof(crc_text)
+        ) != ESP_OK) {
+        return httpd_resp_send_err(
+            request,
+            HTTPD_400_BAD_REQUEST,
+            "Missing X-Image-CRC32"
+        );
+    }
+    char *crc_end = NULL;
+    unsigned long parsed_crc = strtoul(crc_text, &crc_end, 16);
+    if (crc_end == crc_text || *crc_end != '\0' || parsed_crc > UINT32_MAX) {
+        return httpd_resp_send_err(request, HTTPD_400_BAD_REQUEST, "Invalid CRC32");
+    }
+
+    uint8_t pixels[PICOPAL_IMAGE_SIZE];
+    size_t received = 0;
+    unsigned receive_timeouts = 0;
+    while (received < sizeof(pixels)) {
+        int result = httpd_req_recv(
+            request,
+            (char *)pixels + received,
+            sizeof(pixels) - received
+        );
+        if (result == HTTPD_SOCK_ERR_TIMEOUT) {
+            if (++receive_timeouts >= 3) {
+                ESP_LOGW(TAG, "Image upload timed out after %u bytes", (unsigned)received);
+                httpd_resp_set_status(request, "408 Request Timeout");
+                return httpd_resp_sendstr(request, "Image upload timed out");
+            }
+            continue;
+        }
+        if (result <= 0) {
+            return ESP_FAIL;
+        }
+        receive_timeouts = 0;
+        received += (size_t)result;
+    }
+
+    ESP_LOGI(TAG, "Image upload received; saving");
+    uint32_t image_id = 0;
+    esp_err_t result = picopal_image_add(
+        pixels,
+        sizeof(pixels),
+        (uint32_t)parsed_crc,
+        &image_id
+    );
+    if (result == ESP_ERR_INVALID_CRC) {
+        return httpd_resp_send_err(request, HTTPD_400_BAD_REQUEST, "CRC32 mismatch");
+    }
+    if (result == ESP_ERR_NO_MEM) {
+        httpd_resp_set_status(request, "507 Insufficient Storage");
+        return httpd_resp_sendstr(request, "Image gallery is full");
+    }
+    if (result != ESP_OK) {
+        ESP_LOGE(TAG, "Image save failed: %s", esp_err_to_name(result));
+        return httpd_resp_send_err(
+            request,
+            HTTPD_500_INTERNAL_SERVER_ERROR,
+            "Could not save image"
+        );
+    }
+
+    ESP_LOGI(TAG, "Image %lu saved", (unsigned long)image_id);
+    picopal_events_publish((picopal_event_t){
+        .type = PICOPAL_EVENT_DRAW_IMAGE_UPDATED,
+    });
+    httpd_resp_set_type(request, "application/json");
+    char response[48];
+    snprintf(response, sizeof(response), "{\"saved\":true,\"id\":%lu}",
+        (unsigned long)image_id);
+    return httpd_resp_sendstr(request, response);
+}
+
+static void publish_image_updated(void)
+{
+    picopal_events_publish((picopal_event_t){
+        .type = PICOPAL_EVENT_DRAW_IMAGE_UPDATED,
+    });
+}
+
+static esp_err_t image_list_handler(httpd_req_t *request)
+{
+    uint32_t ids[PICOPAL_IMAGE_LIMIT];
+    size_t count = picopal_image_ids(ids, PICOPAL_IMAGE_LIMIT);
+    char chunk[64];
+    httpd_resp_set_type(request, "application/json");
+    httpd_resp_set_hdr(request, "Cache-Control", "no-store");
+    snprintf(chunk, sizeof(chunk), "{\"count\":%u,\"selected\":%lu,\"items\":[",
+        (unsigned)count, (unsigned long)picopal_image_selected_id());
+    ESP_RETURN_ON_ERROR(httpd_resp_send_chunk(request, chunk, HTTPD_RESP_USE_STRLEN),
+        TAG, "Image list start failed");
+    for (size_t i = 0; i < count; ++i) {
+        snprintf(chunk, sizeof(chunk), "%s{\"id\":%lu}", i == 0 ? "" : ",",
+            (unsigned long)ids[i]);
+        ESP_RETURN_ON_ERROR(httpd_resp_send_chunk(request, chunk, HTTPD_RESP_USE_STRLEN),
+            TAG, "Image list item failed");
+    }
+    return httpd_resp_send_chunk(request, "]}", HTTPD_RESP_USE_STRLEN) == ESP_OK
+        ? httpd_resp_send_chunk(request, NULL, 0) : ESP_FAIL;
+}
+
+static esp_err_t image_current_handler(httpd_req_t *request)
+{
+    uint8_t pixels[PICOPAL_IMAGE_SIZE];
+    if (!picopal_image_copy_selected(pixels, sizeof(pixels))) {
+        return httpd_resp_send_err(request, HTTPD_404_NOT_FOUND, "No image selected");
+    }
+    httpd_resp_set_type(request, "application/octet-stream");
+    httpd_resp_set_hdr(request, "Cache-Control", "no-store");
+    return httpd_resp_send(request, (const char *)pixels, sizeof(pixels));
+}
+
+static bool request_image_id(httpd_req_t *request, uint32_t *image_id)
+{
+    const char *prefix = "/api/images/";
+    const char *text = request->uri + strlen(prefix);
+    char *end = NULL;
+    unsigned long id = strtoul(text, &end, 10);
+    if (text == end || *end != '\0' || id == 0 || id > UINT32_MAX) return false;
+    *image_id = (uint32_t)id;
+    return true;
+}
+
+static esp_err_t image_select_handler(httpd_req_t *request)
+{
+    char query[32];
+    char id_text[16];
+    if (httpd_req_get_url_query_str(request, query, sizeof(query)) != ESP_OK ||
+        httpd_query_key_value(query, "id", id_text, sizeof(id_text)) != ESP_OK) {
+        return httpd_resp_send_err(request, HTTPD_400_BAD_REQUEST, "Missing image id");
+    }
+    char *end = NULL;
+    unsigned long id = strtoul(id_text, &end, 10);
+    if (id_text == end || *end != '\0' || id == 0 || id > UINT32_MAX) {
+        return httpd_resp_send_err(request, HTTPD_400_BAD_REQUEST, "Invalid image id");
+    }
+    if (picopal_image_select((uint32_t)id) != ESP_OK) {
+        return httpd_resp_send_err(request, HTTPD_404_NOT_FOUND, "Image not found");
+    }
+    publish_image_updated();
+    httpd_resp_set_type(request, "application/json");
+    return httpd_resp_sendstr(request, "{\"selected\":true}");
+}
+
+static esp_err_t image_delete_handler(httpd_req_t *request)
+{
+    uint32_t image_id = 0;
+    if (!request_image_id(request, &image_id)) {
+        return httpd_resp_send_err(request, HTTPD_400_BAD_REQUEST, "Invalid image id");
+    }
+    if (picopal_image_delete(image_id) != ESP_OK) {
+        return httpd_resp_send_err(request, HTTPD_404_NOT_FOUND, "Image not found");
+    }
+    publish_image_updated();
+    httpd_resp_set_type(request, "application/json");
+    return httpd_resp_sendstr(request, "{\"deleted\":true}");
 }
 
 static esp_err_t timer_status_handler(httpd_req_t *request)
@@ -400,6 +546,9 @@ static esp_err_t configure_handler(httpd_req_t *request)
 static esp_err_t start_http_server(void)
 {
     httpd_config_t config = HTTPD_DEFAULT_CONFIG();
+    config.stack_size = 8192;
+    config.max_uri_handlers = 16;
+    config.uri_match_fn = httpd_uri_match_wildcard;
     ESP_RETURN_ON_ERROR(
         httpd_start(&s_http_server, &config),
         TAG,
@@ -441,6 +590,31 @@ static esp_err_t start_http_server(void)
         .method = HTTP_POST,
         .handler = forget_wifi_handler,
     };
+    const httpd_uri_t image_upload = {
+        .uri = "/api/images/current",
+        .method = HTTP_POST,
+        .handler = image_upload_handler,
+    };
+    const httpd_uri_t image_list = {
+        .uri = "/api/images",
+        .method = HTTP_GET,
+        .handler = image_list_handler,
+    };
+    const httpd_uri_t image_current = {
+        .uri = "/api/images/current",
+        .method = HTTP_GET,
+        .handler = image_current_handler,
+    };
+    const httpd_uri_t image_select = {
+        .uri = "/api/images/select",
+        .method = HTTP_POST,
+        .handler = image_select_handler,
+    };
+    const httpd_uri_t image_delete = {
+        .uri = "/api/images/*",
+        .method = HTTP_DELETE,
+        .handler = image_delete_handler,
+    };
     ESP_RETURN_ON_ERROR(httpd_register_uri_handler(s_http_server, &root), TAG, "Root route failed");
     ESP_RETURN_ON_ERROR(httpd_register_uri_handler(s_http_server, &health), TAG, "Health route failed");
     ESP_RETURN_ON_ERROR(httpd_register_uri_handler(s_http_server, &configure), TAG, "Configure route failed");
@@ -448,6 +622,11 @@ static esp_err_t start_http_server(void)
     ESP_RETURN_ON_ERROR(httpd_register_uri_handler(s_http_server, &timer_toggle), TAG, "Timer toggle route failed");
     ESP_RETURN_ON_ERROR(httpd_register_uri_handler(s_http_server, &timer_reset), TAG, "Timer reset route failed");
     ESP_RETURN_ON_ERROR(httpd_register_uri_handler(s_http_server, &forget_wifi), TAG, "Wi-Fi forget route failed");
+    ESP_RETURN_ON_ERROR(httpd_register_uri_handler(s_http_server, &image_upload), TAG, "Image upload route failed");
+    ESP_RETURN_ON_ERROR(httpd_register_uri_handler(s_http_server, &image_list), TAG, "Image list route failed");
+    ESP_RETURN_ON_ERROR(httpd_register_uri_handler(s_http_server, &image_current), TAG, "Current image route failed");
+    ESP_RETURN_ON_ERROR(httpd_register_uri_handler(s_http_server, &image_select), TAG, "Image select route failed");
+    ESP_RETURN_ON_ERROR(httpd_register_uri_handler(s_http_server, &image_delete), TAG, "Image delete route failed");
     return ESP_OK;
 }
 

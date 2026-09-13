@@ -22,7 +22,10 @@ idf_component_register(
         "picopal_controller.c"
         "picopal_storage.c"
         "picopal_wifi.c"
+        "picopal_crc32.c"
+        "picopal_image.c"
     INCLUDE_DIRS "."
+    EMBED_TXTFILES "../web/index.html"
     PRIV_REQUIRES
         esp_adc
         driver

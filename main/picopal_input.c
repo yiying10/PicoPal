@@ -107,16 +107,16 @@ static void input_task(void *context)
             armed = true;
         } else if (armed) {
             if (x_raw < PICOPAL_JOYSTICK_LOW_THRESHOLD) {
-                publish_direction(PICOPAL_EVENT_DRAW_PREVIOUS);
-                armed = false;
-            } else if (x_raw > PICOPAL_JOYSTICK_HIGH_THRESHOLD) {
-                publish_direction(PICOPAL_EVENT_DRAW_NEXT);
-                armed = false;
-            } else if (y_raw < PICOPAL_JOYSTICK_LOW_THRESHOLD) {
                 publish_direction(PICOPAL_EVENT_PAGE_PREVIOUS);
                 armed = false;
-            } else if (y_raw > PICOPAL_JOYSTICK_HIGH_THRESHOLD) {
+            } else if (x_raw > PICOPAL_JOYSTICK_HIGH_THRESHOLD) {
                 publish_direction(PICOPAL_EVENT_PAGE_NEXT);
+                armed = false;
+            } else if (y_raw < PICOPAL_JOYSTICK_LOW_THRESHOLD) {
+                publish_direction(PICOPAL_EVENT_DRAW_NEXT);
+                armed = false;
+            } else if (y_raw > PICOPAL_JOYSTICK_HIGH_THRESHOLD) {
+                publish_direction(PICOPAL_EVENT_DRAW_PREVIOUS);
                 armed = false;
             }
         }

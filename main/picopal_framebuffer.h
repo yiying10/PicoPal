@@ -1,6 +1,7 @@
 #pragma once
 
 #include <stdbool.h>
+#include <stddef.h>
 #include <stdint.h>
 
 #include "esp_err.h"
@@ -12,4 +13,5 @@
 
 void picopal_framebuffer_clear(bool on);
 void picopal_framebuffer_set_pixel(uint8_t x, uint8_t y, bool on);
+void picopal_framebuffer_copy(const uint8_t *pixels, size_t length);
 esp_err_t picopal_framebuffer_flush(void);

@@ -29,6 +29,14 @@ void picopal_framebuffer_set_pixel(uint8_t x, uint8_t y, bool on)
     }
 }
 
+void picopal_framebuffer_copy(const uint8_t *pixels, size_t length)
+{
+    if (pixels == NULL || length != sizeof(s_pixels)) {
+        return;
+    }
+    memcpy(s_pixels, pixels, sizeof(s_pixels));
+}
+
 esp_err_t picopal_framebuffer_flush(void)
 {
     ESP_RETURN_ON_ERROR(picopal_display_send_command(0x21),

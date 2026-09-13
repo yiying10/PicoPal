@@ -42,3 +42,8 @@ target_include_directories(command_parser_test PRIVATE ../main)
 target_compile_options(command_parser_test PRIVATE -Wall -Wextra -Werror)
 
 add_test(NAME command_parser COMMAND command_parser_test)
+
+add_executable(crc32_test crc32_test.c ../main/picopal_crc32.c)
+target_include_directories(crc32_test PRIVATE ../main)
+target_compile_options(crc32_test PRIVATE -Wall -Wextra -Werror)
+add_test(NAME crc32 COMMAND crc32_test)

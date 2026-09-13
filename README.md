@@ -19,3 +19,11 @@ PicoPal/
 ├── tests/             # host-side unit tests 與測試資料
 └── README.md
 ```
+
+## 手機 API
+
+- `GET /api/images`：取得圖片列表與目前選取 ID。
+- `GET /api/images/current`：取得目前圖片的 1024-byte 1-bit framebuffer。
+- `POST /api/images/current`：新增圖片；body 為 1024 bytes，並帶 `X-Image-CRC32` header。
+- `POST /api/images/select?id=ID`：選取圖片。
+- `DELETE /api/images/ID`：刪除圖片。

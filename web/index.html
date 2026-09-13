@@ -1,0 +1,221 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>PicoPal</title>
+  <style>
+    :root { font-family: system-ui; color: #202020; background: #f4f1e8; }
+    body { margin: 0; }
+    main { max-width: 560px; margin: auto; padding: 24px; }
+    nav, .controls, .tools { display: flex; gap: 8px; flex-wrap: wrap; }
+    nav { margin-bottom: 20px; }
+    button { font: inherit; border: 0; border-radius: 12px; padding: 12px 16px; background: #202020; color: white; }
+    nav button { flex: 1; background: #ddd; color: #222; }
+    nav .on, .tools .on { background: #202020; color: white; }
+    .card { background: white; border-radius: 20px; padding: 24px; }
+    .time { font: 700 56px ui-monospace, monospace; text-align: center; margin: 24px 0; }
+    .secondary, .tools button { background: #ddd; color: #222; }
+    .hidden { display: none; }
+    canvas { width: 100%; margin: 16px 0; image-rendering: pixelated; touch-action: none; background: #000; border: 1px solid #222; }
+    small, #uploadState { color: #666; }
+    #gallery { display: grid; gap: 8px; margin-top: 12px; }
+    .imageRow { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 8px 10px; border-radius: 10px; background: #f4f1e8; }
+    .imageRow .selected { font-weight: 700; }
+    .imageRow button { padding: 8px 10px; }
+  </style>
+</head>
+<body>
+<main>
+  <h1>PicoPal</h1>
+  <nav><button id="focusTab" class="on">Focus</button><button id="drawTab">Drawing</button></nav>
+  <section id="focus" class="card">
+    <small id="state">Loading…</small>
+    <div id="time" class="time">000:00</div>
+    <div class="controls"><button id="toggle">Start</button><button id="reset" class="secondary">Reset</button></div>
+  </section>
+  <section id="drawing" class="card hidden">
+    <div class="tools">
+      <button id="pen" class="on">Pen</button><button id="eraser">Eraser</button>
+      <button id="clear">Clear</button><button id="invert">Invert</button>
+    </div>
+    <canvas id="canvas" width="128" height="64"></canvas>
+    <div class="controls"><button id="upload">Send to PicoPal</button></div>
+    <p id="uploadState">Ready</p>
+    <h2>Saved drawings</h2>
+    <small id="galleryState">Loading…</small>
+    <div id="gallery"></div>
+  </section>
+  <p><button id="forget" class="secondary">Forget Wi-Fi</button></p>
+</main>
+<script>
+const q = selector => document.querySelector(selector);
+const canvas = q('#canvas');
+const context = canvas.getContext('2d', {alpha: false});
+let drawing = false;
+let erase = false;
+
+context.fillStyle = '#000';
+context.fillRect(0, 0, 128, 64);
+
+async function refreshTimer() {
+  try {
+    const response = await fetch('/api/timer');
+    const timer = await response.json();
+    q('#time').textContent = timer.display;
+    q('#state').textContent = timer.running ? 'Timer running' : 'Timer paused';
+    q('#toggle').textContent = timer.running ? 'Pause' : 'Start';
+  } catch (_) {
+    q('#state').textContent = 'Device unavailable';
+  }
+}
+
+async function post(path) {
+  await fetch(path, {method: 'POST'});
+  await refreshTimer();
+}
+
+function showDrawing(show) {
+  q('#focus').classList.toggle('hidden', show);
+  q('#drawing').classList.toggle('hidden', !show);
+  q('#focusTab').classList.toggle('on', !show);
+  q('#drawTab').classList.toggle('on', show);
+}
+
+function selectTool(useEraser) {
+  erase = useEraser;
+  q('#pen').classList.toggle('on', !erase);
+  q('#eraser').classList.toggle('on', erase);
+}
+
+function drawAt(event) {
+  const bounds = canvas.getBoundingClientRect();
+  const x = Math.floor((event.clientX - bounds.left) * 128 / bounds.width);
+  const y = Math.floor((event.clientY - bounds.top) * 64 / bounds.height);
+  context.fillStyle = erase ? '#000' : '#fff';
+  context.fillRect(x - 1, y - 1, 3, 3);
+}
+
+function packDisplay() {
+  const rgba = context.getImageData(0, 0, 128, 64).data;
+  const packed = new Uint8Array(1024);
+  for (let y = 0; y < 64; ++y) {
+    for (let x = 0; x < 128; ++x) {
+      if (rgba[(y * 128 + x) * 4] >= 128) {
+        packed[(y >> 3) * 128 + x] |= 1 << (y & 7);
+      }
+    }
+  }
+  return packed;
+}
+
+function unpackDisplay(bytes) {
+  const image = context.createImageData(128, 64);
+  for (let y = 0; y < 64; ++y) {
+    for (let x = 0; x < 128; ++x) {
+      const on = bytes[(y >> 3) * 128 + x] & (1 << (y & 7));
+      const offset = (y * 128 + x) * 4;
+      image.data[offset] = image.data[offset + 1] = image.data[offset + 2] = on ? 255 : 0;
+      image.data[offset + 3] = 255;
+    }
+  }
+  context.putImageData(image, 0, 0);
+}
+
+async function loadSelectedImage() {
+  const response = await fetch('/api/images/current', {cache: 'no-store'});
+  if (response.status === 404) {
+    context.fillStyle = '#000'; context.fillRect(0, 0, 128, 64);
+    return;
+  }
+  if (!response.ok) throw new Error(await response.text());
+  unpackDisplay(new Uint8Array(await response.arrayBuffer()));
+}
+
+async function selectImage(id) {
+  const response = await fetch(`/api/images/select?id=${id}`, {method: 'POST'});
+  if (!response.ok) throw new Error(await response.text());
+  await refreshGallery();
+  await loadSelectedImage();
+}
+
+async function deleteImage(id) {
+  if (!confirm(`Delete drawing #${id}?`)) return;
+  const response = await fetch(`/api/images/${id}`, {method: 'DELETE'});
+  if (!response.ok) throw new Error(await response.text());
+  await refreshGallery();
+  await loadSelectedImage();
+}
+
+async function refreshGallery() {
+  try {
+    const response = await fetch('/api/images', {cache: 'no-store'});
+    if (!response.ok) throw new Error(await response.text());
+    const gallery = await response.json();
+    q('#galleryState').textContent = `${gallery.count} / 100 drawings saved`;
+    q('#gallery').replaceChildren(...gallery.items.map(item => {
+      const row = document.createElement('div'); row.className = 'imageRow';
+      const label = document.createElement('span'); label.textContent = `Drawing #${item.id}`;
+      if (item.id === gallery.selected) label.className = 'selected';
+      const actions = document.createElement('span');
+      const show = document.createElement('button'); show.textContent = item.id === gallery.selected ? 'Shown' : 'Show';
+      show.disabled = item.id === gallery.selected; show.onclick = () => selectImage(item.id);
+      const remove = document.createElement('button'); remove.className = 'secondary'; remove.textContent = 'Delete';
+      remove.onclick = () => deleteImage(item.id);
+      actions.append(show, remove); row.append(label, actions); return row;
+    }));
+  } catch (error) {
+    q('#galleryState').textContent = `Gallery unavailable: ${error.message}`;
+  }
+}
+
+function crc32(bytes) {
+  let crc = 0xffffffff;
+  for (const byte of bytes) {
+    crc ^= byte;
+    for (let bit = 0; bit < 8; ++bit) {
+      crc = (crc >>> 1) ^ ((crc & 1) ? 0xedb88320 : 0);
+    }
+  }
+  return (crc ^ 0xffffffff) >>> 0;
+}
+
+async function uploadDrawing() {
+  const bytes = packDisplay();
+  const checksum = crc32(bytes).toString(16).padStart(8, '0');
+  q('#uploadState').textContent = 'Sending…';
+  try {
+    const response = await fetch('/api/images/current', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/octet-stream', 'X-Image-CRC32': checksum},
+      body: bytes
+    });
+    if (!response.ok) throw new Error(await response.text());
+    q('#uploadState').textContent = 'Saved and shown on PicoPal';
+    await refreshGallery();
+  } catch (error) {
+    q('#uploadState').textContent = `Upload failed: ${error.message}`;
+  }
+}
+
+canvas.addEventListener('pointerdown', event => { drawing = true; canvas.setPointerCapture(event.pointerId); drawAt(event); });
+canvas.addEventListener('pointermove', event => { if (drawing) drawAt(event); });
+canvas.addEventListener('pointerup', () => { drawing = false; });
+canvas.addEventListener('pointercancel', () => { drawing = false; });
+q('#pen').onclick = () => selectTool(false);
+q('#eraser').onclick = () => selectTool(true);
+q('#clear').onclick = () => { context.fillStyle = '#000'; context.fillRect(0, 0, 128, 64); };
+q('#invert').onclick = () => { context.globalCompositeOperation = 'difference'; context.fillStyle = '#fff'; context.fillRect(0, 0, 128, 64); context.globalCompositeOperation = 'source-over'; };
+q('#upload').onclick = uploadDrawing;
+q('#toggle').onclick = () => post('/api/timer/toggle');
+q('#reset').onclick = () => post('/api/timer/reset');
+q('#forget').onclick = async () => { if (confirm('Forget Wi-Fi and return to setup mode?')) await post('/api/wifi/forget'); };
+q('#focusTab').onclick = () => showDrawing(false);
+q('#drawTab').onclick = () => showDrawing(true);
+refreshTimer();
+refreshGallery();
+loadSelectedImage().catch(() => {});
+setInterval(refreshTimer, 500);
+</script>
+</body>
+</html>

@@ -8,6 +8,7 @@
 #include "picopal_framebuffer.h"
 #include "picopal_input.h"
 #include "picopal_i2c.h"
+#include "picopal_image.h"
 #include "picopal_motion.h"
 #include "picopal_pages.h"
 #include "picopal_pico_state.h"
@@ -23,6 +24,7 @@ void app_main(void)
     ESP_LOGI(TAG, "PicoPal booted");
 
     ESP_ERROR_CHECK(picopal_storage_init());
+    ESP_ERROR_CHECK(picopal_image_init());
     ESP_ERROR_CHECK(picopal_wifi_init());
     ESP_ERROR_CHECK(picopal_i2c_init());
     ESP_ERROR_CHECK(picopal_display_init());
@@ -57,6 +59,9 @@ void app_main(void)
             overlay_dismissed = true;
         }
         bool pico_frame_changed = picopal_animation_update();
+        if (picopal_pages_update()) {
+            redraw = true;
+        }
         if ((pico_state_changed || pico_frame_changed) &&
             picopal_pages_current() == PICOPAL_PAGE_PICO) {
             redraw = true;
